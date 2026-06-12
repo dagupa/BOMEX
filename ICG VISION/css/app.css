@@ -119,6 +119,18 @@ th { position: relative; }
 .row-completed { opacity: 0.6; background-color: rgba(16, 185, 129, 0.05) !important; }
 .row-completed td { color: var(--color-slate-500); }
 .dark .row-completed { background-color: rgba(16, 185, 129, 0.02) !important; }
+.row-modified { background-color: rgba(251, 191, 36, 0.12) !important; }
+.row-modified td { color: inherit; }
+.dark .row-modified { background-color: rgba(245, 158, 11, 0.1) !important; }
+.row-added { background-color: rgba(198, 239, 206, 0.2) !important; }
+.row-added td { color: inherit; }
+.dark .row-added { background-color: rgba(198, 239, 206, 0.12) !important; }
+.row-deleted { background-color: rgba(248, 113, 113, 0.12) !important; }
+.row-deleted td { color: var(--color-slate-500); text-decoration: line-through; opacity: 0.65; }
+.dark .row-deleted { background-color: rgba(248, 113, 113, 0.18) !important; }
+.cell-modified { background-color: rgba(251, 191, 36, 0.25); }
+.cell-order-changed { background-color: rgba(255, 199, 206, 0.55); }
+.cell-modified div, .cell-order-changed div { color: inherit; }
 
 /* SAP Dark Mode Corrections overrides */
 .dark .text-sap-blue, .dark [class*="text-sap-blue"] { color: #38bdf8 !important; }

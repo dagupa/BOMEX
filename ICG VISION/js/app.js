@@ -885,6 +885,7 @@ function toggleProgress(pos, contextElement = null) {
                const original = row[col.key] || '';
                const changed = existing[col.key] !== undefined ? existing[col.key] : original;
                const isModified = existing[col.key] !== undefined;
+               const isPosicion = col.key === 'posicion';
                return `<div class="flex flex-col gap-1">
                    <label class="text-xs font-semibold text-slate-500 dark:text-slate-400">${col.label}</label>
                    <div class="text-xs text-slate-400 dark:text-slate-500 mb-1">Original: <span class="font-mono">${original || '—'}</span></div>
@@ -892,10 +893,12 @@ function toggleProgress(pos, contextElement = null) {
                        data-key="${col.key}"
                        value="${changed}"
                        placeholder="${original || '—'}"
+                       ${isPosicion ? 'readonly' : ''}
                        class="w-full px-3 py-2 rounded-lg border text-xs font-mono transition-colors
                            ${isModified
                                ? 'border-red-400 bg-red-50 dark:bg-red-500/30 text-red-700 dark:text-red-300'
                                : 'border-sap-border dark:border-slate-600 bg-white dark:bg-slate-700 text-sap-text dark:text-slate-200'}
+                           ${isPosicion ? 'bg-slate-100 dark:bg-slate-700 cursor-not-allowed' : ''}
                            focus:outline-none focus:ring-2 focus:ring-sap-blue/40"
                        oninput="highlightIfChanged(this, '${original}')">
                </div>`;
@@ -973,30 +976,48 @@ function toggleProgress(pos, contextElement = null) {
  
        function exportErrorReport() {
            if (!rawData || rawData.length === 0) { showNotification('No hay datos cargados', 'error'); return; }
-           if (Object.keys(errorsMap).length === 0) { showNotification('No hay errores registrados', 'error'); return; }
  
            const COL_KEYS = ['posicion','orden','cod_cable','seccion','longitud','marcado','cable_marca',
                              'de_elemento','de_punto','de_terminal','de_manguito','para_manguito',
-                             'para_elemento','para_punto','para_terminal','observaciones'];
+                             'para_elemento','para_punto','para_terminal','observaciones','estado'];
            const COL_HEADERS = ['Posición','Orden dentro de la lista','Cod. cable','Sección','Longitud',
                                 'Marcado','Cable / Marca','De Elemento','De Punto Conexión','De Terminal',
-                                'De Manguito','De Marca','Para Elemento','Para Punto Conexión','Para Terminal','Observaciones'];
+                                'De Manguito','De Marca','Para Elemento','Para Punto Conexión','Para Terminal','Observaciones','Estado'];
            const RED = { font: { color: { rgb: 'FF0000' }, bold: true } };
            const HEADER_STYLE = { font: { bold: true }, fill: { fgColor: { rgb: 'D9E1F2' } }, alignment: { horizontal: 'center' } };
+           const ADDED_STYLE = { fill: { fgColor: { rgb: 'C6EFCE' } } };
+           const DELETED_STYLE = { fill: { fgColor: { rgb: 'FFC7CE' } } };
+           const MODIFIED_STYLE = { fill: { fgColor: { rgb: 'FFEB9C' } } };
+           const ORDER_CHANGED_STYLE = { fill: { fgColor: { rgb: 'FFEB9C' } }, font: { color: { rgb: '9C6500' }, bold: true } };
  
+           const allRows = rawData;
+           const changedRows = allRows.filter(row => {
+               const changes = errorsMap[row.posicion] || {};
+               return row.deleted || row.added || row.orderChanged || Object.keys(changes).length > 0;
+           });
            const wb = XLSX.utils.book_new();
            const wsData = [COL_HEADERS.map(h => ({ v: h, s: HEADER_STYLE }))];
  
-           rawData.forEach(row => {
+           allRows.forEach(row => {
                const changes = errorsMap[row.posicion] || {};
                const hasError = Object.keys(changes).length > 0;
+               const state = row.deleted ? 'Eliminado' : row.added ? 'Añadido' : row.orderChanged ? 'Renumerado' : row.modificado ? 'Modificado' : (hasError ? 'Con incidencia' : 'Sin cambios');
+               const rowStyle = row.deleted ? DELETED_STYLE : row.added ? ADDED_STYLE : null;
                const cells = COL_KEYS.map(key => {
+                   if (key === 'estado') {
+                       return { v: state, s: rowStyle ? { ...rowStyle, font: { bold: true } } : { font: { bold: true } } };
+                   }
                    const isChanged = changes[key] !== undefined;
                    const value = isChanged ? changes[key] : (row[key] || '');
-                   return isChanged ? { v: value, s: RED } : { v: value };
+                   const style = {};
+                   if (rowStyle) Object.assign(style, rowStyle);
+                   if (key === 'orden' && row.orderChanged) Object.assign(style, ORDER_CHANGED_STYLE);
+                   if (row.deleted && key !== 'estado') Object.assign(style, DELETED_STYLE);
+                   if (row.added && key !== 'estado') Object.assign(style, ADDED_STYLE);
+                   if (isChanged) Object.assign(style, MODIFIED_STYLE, RED);
+                   return Object.keys(style).length ? { v: value, s: style } : { v: value };
                });
-               if (hasError) wsData.push(cells);
-               else wsData.push(cells.map(c => ({ v: c.v })));
+               wsData.push(cells);
            });
  
            const ws = XLSX.utils.aoa_to_sheet(wsData);
@@ -1004,9 +1025,10 @@ function toggleProgress(pos, contextElement = null) {
            XLSX.utils.book_append_sheet(wb, ws, 'Informe de Errores');
            const teamName = (reportMetadata.equipo || 'Export').replace(/\s+/g, '_');
            XLSX.writeFile(wb, `Informe_Errores_${teamName}.xlsx`);
-           showNotification(`Informe exportado con ${Object.keys(errorsMap).length} error(es) registrado(s)`, 'success');
+           showNotification(`Informe exportado con ${allRows.length} filas y ${changedRows.length} cambios/incidencias registrados`, 'success');
        }
-	  function updateSaveButton() {
+
+       function updateSaveButton() {
     const btn = document.getElementById('btnSave');
     if (!btn) return;
     const icon = btn.querySelector('i');
@@ -1096,9 +1118,12 @@ function toggleProgress(pos, contextElement = null) {
                 saveProgress();
                 saveErrors();
 
-                // Actualizar UI
-                updateGlobalProgress();
-                updateErrorBadge();
+       if (Array.isArray(data.rows)) {
+           rawData = data.rows;
+       } else if (Array.isArray(data.rawData)) {
+           rawData = data.rawData;
+       }
+ 
                 renderTable();
 
                 hasUnsavedChanges = false;
@@ -1149,7 +1174,8 @@ function saveDataToFile() {
            equipo: reportMetadata.equipo,
            fechaExportacion: new Date().toISOString(),
            progress: progressMap,
-           errors: errorsMap
+           errors: errorsMap,
+           rows: rawData
        };
  
        const json = JSON.stringify(data, null, 2);
@@ -1179,6 +1205,212 @@ function saveDataToFile() {
        console.error('Error guardando archivo:', e);
        showNotification('Error al guardar archivo', 'error');
    }
+}
+
+function getNextPosicion() {
+    if (!rawData || rawData.length === 0) return '1';
+    const numbers = rawData.map(r => parseInt(r.posicion, 10)).filter(n => !isNaN(n));
+    return String(numbers.length ? Math.max(...numbers) + 1 : 1);
+}
+
+function openAddCableModal() {
+    const modal = document.getElementById('cableCrudModal');
+    if (!modal) return;
+    document.getElementById('crudModalTitle').innerText = 'Añadir Cable Nuevo';
+    document.getElementById('crudPosicion').value = getNextPosicion();
+    document.getElementById('crudOrden').value = '';
+    document.getElementById('crudCodCable').value = '';
+    document.getElementById('crudSeccion').value = '';
+    document.getElementById('crudLongitud').value = '';
+    document.getElementById('crudMarcado').value = '';
+    document.getElementById('crudCableMarca').value = '';
+    document.getElementById('crudDeElemento').value = '';
+    document.getElementById('crudDePunto').value = '';
+    document.getElementById('crudDeTerminal').value = '';
+    document.getElementById('crudDeManguito').value = '';
+    document.getElementById('crudParaElemento').value = '';
+    document.getElementById('crudParaPunto').value = '';
+    document.getElementById('crudParaTerminal').value = '';
+    document.getElementById('crudParaManguito').value = '';
+    document.getElementById('crudObservaciones').value = '';
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeCableModal() {
+    const modal = document.getElementById('cableCrudModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function shiftOrdersDown(startOrder) {
+    for (let i = rawData.length - 1; i >= 0; i -= 1) {
+        const row = rawData[i];
+        const currentOrder = parseInt(row.orden, 10);
+        if (!isNaN(currentOrder) && currentOrder >= startOrder) {
+            row.orden = String(currentOrder + 1);
+            row.modificado = true;
+        }
+    }
+}
+
+function normalizeOrdenes() {
+    if (!rawData || rawData.length === 0) return;
+    rawData.sort((a, b) => {
+        const aNum = parseInt(a.orden, 10);
+        const bNum = parseInt(b.orden, 10);
+        if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+        if (!isNaN(aNum)) return -1;
+        if (!isNaN(bNum)) return 1;
+        return String(a.posicion).localeCompare(String(b.posicion), undefined, { numeric: true });
+    });
+    rawData.forEach((row, index) => {
+        const targetOrder = String(index + 1);
+        if (String(row.orden) !== targetOrder) {
+            row.orden = targetOrder;
+            row.modificado = true;
+            row.orderChanged = true;
+        }
+    });
+}
+
+function openDeleteCableModal() {
+    const modal = document.getElementById('deleteCableModal');
+    if (!modal) return;
+    const input = document.getElementById('deleteCablePos');
+    if (input) input.value = '';
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function closeDeleteCableModal() {
+    const modal = document.getElementById('deleteCableModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function confirmDeleteCable() {
+    const input = document.getElementById('deleteCablePos');
+    if (!input) return;
+    const posicion = input.value?.trim();
+    if (!posicion) {
+        showNotification('Introduce una POS válida para eliminar el cable', 'error');
+        return;
+    }
+    const index = rawData.findIndex(r => String(r.posicion) === posicion);
+    if (index === -1) {
+        showNotification(`No se encontró la posición ${posicion}`, 'error');
+        return;
+    }
+    const confirmed = window.confirm(`¿Deseas eliminar completamente el cable con POS ${posicion}? Esta acción no se puede deshacer.`);
+    if (!confirmed) return;
+    const row = rawData[index];
+    row.deleted = true;
+    row.modificado = true;
+    delete errorsMap[posicion];
+    delete progressMap[posicion];
+    hasUnsavedChanges = true;
+    updateSaveButton();
+    renderTable();
+    updateErrorBadge();
+    closeDeleteCableModal();
+    showNotification(`Cable POS ${posicion} marcado como eliminado`, 'success');
+}
+
+function saveIncidencia() {
+    const posicion = document.getElementById('crudPosicion')?.value?.trim();
+    const ordenValue = document.getElementById('crudOrden')?.value?.trim();
+    const cod_cable = document.getElementById('crudCodCable')?.value?.trim();
+    const seccion = document.getElementById('crudSeccion')?.value?.trim();
+    const longitud = document.getElementById('crudLongitud')?.value?.trim();
+    const marcado = document.getElementById('crudMarcado')?.value?.trim();
+    const cable_marca = document.getElementById('crudCableMarca')?.value?.trim();
+    const de_elemento = document.getElementById('crudDeElemento')?.value?.trim();
+    const de_punto = document.getElementById('crudDePunto')?.value?.trim();
+    const de_terminal = document.getElementById('crudDeTerminal')?.value?.trim();
+    const de_manguito = document.getElementById('crudDeManguito')?.value?.trim();
+    const para_elemento = document.getElementById('crudParaElemento')?.value?.trim();
+    const para_punto = document.getElementById('crudParaPunto')?.value?.trim();
+    const para_terminal = document.getElementById('crudParaTerminal')?.value?.trim();
+    const para_manguito = document.getElementById('crudParaManguito')?.value?.trim();
+    const observaciones = document.getElementById('crudObservaciones')?.value?.trim();
+
+    if (!posicion || !ordenValue) {
+        showNotification('POS y Orden son obligatorios para añadir el cable', 'error');
+        return;
+    }
+
+    const orden = parseInt(ordenValue, 10);
+    if (isNaN(orden) || orden < 1) {
+        showNotification('Orden debe ser un número entero válido mayor que 0', 'error');
+        return;
+    }
+
+    const existsOrder = rawData.some(r => parseInt(r.orden, 10) === orden);
+    if (existsOrder) {
+        const applyShift = window.confirm(
+            `El orden ${orden} ya existe. Pulsa Aceptar para desplazar hacia abajo los registros con orden >= ${orden} y reservar este lugar.`
+        );
+        if (!applyShift) {
+            showNotification('Operación cancelada. Ajusta el orden antes de volver a intentar.', 'error');
+            return;
+        }
+        shiftOrdersDown(orden);
+    }
+
+    const newRow = {
+        posicion,
+        orden: String(orden),
+        cod_cable: cod_cable || '',
+        seccion: seccion || '',
+        longitud: longitud || '',
+        marcado: marcado || '',
+        cable_marca: cable_marca || '',
+        de_elemento: de_elemento || '',
+        de_punto: de_punto || '',
+        de_terminal: de_terminal || '',
+        de_manguito: de_manguito || '',
+        para_elemento: para_elemento || '',
+        para_punto: para_punto || '',
+        para_terminal: para_terminal || '',
+        para_manguito: para_manguito || '',
+        observaciones: observaciones || '',
+        modificado: true,
+        added: true
+    };
+
+    rawData.push(newRow);
+    normalizeOrdenes();
+    hasUnsavedChanges = true;
+    updateSaveButton();
+    renderTable();
+    closeCableModal();
+    showNotification('Cable añadido correctamente y orden actualizado', 'success');
+}
+
+function deleteCableComplete() {
+    const posicion = window.prompt('Introduce la POS del cable a eliminar:');
+    if (!posicion) return;
+    const posTrim = posicion.trim();
+    const index = rawData.findIndex(r => String(r.posicion) === posTrim);
+    if (index === -1) {
+        showNotification(`No se encontró la posición ${posTrim}`, 'error');
+        return;
+    }
+    const confirmed = window.confirm(`¿Deseas eliminar completamente el cable con POS ${posTrim}? Esta acción no se puede deshacer.`);
+    if (!confirmed) return;
+    const row = rawData[index];
+    row.deleted = true;
+    row.modificado = true;
+    delete errorsMap[posTrim];
+    delete progressMap[posTrim];
+    hasUnsavedChanges = true;
+    updateSaveButton();
+    renderTable();
+    updateErrorBadge();
+    showNotification(`Cable POS ${posTrim} marcado como eliminado`, 'success');
 }
        async function exportSleevesToZip(mode = 'download') {
            if (!rawData || rawData.length === 0) return;
@@ -2210,8 +2442,9 @@ function handleHelpEasterEgg() {
                const isFinished = isCableFinished(r.posicion);
                const isSelected = selectedMaterial && (r.de_terminal === selectedMaterial || r.para_terminal === selectedMaterial || r.de_manguito === selectedMaterial);
                const hasError = errorsMap[r.posicion] !== undefined;
+               const rowClass = r.deleted ? 'row-deleted' : r.added ? 'row-added' : '';
                
-               return `<tr class="border-b border-sap-border dark:border-slate-700 text-left ${isSelected?'bg-amber-100 dark:bg-blue-600/30':''} ${isFinished?'row-completed':''} ${hasError?'border-l-4 border-l-red-500 dark:border-l-red-500':''}">
+               return `<tr class="border-b border-sap-border dark:border-slate-700 text-left ${isSelected?'bg-amber-100 dark:bg-blue-600/30':''} ${isFinished?'row-completed':''} ${rowClass} ${hasError?'border-l-4 border-l-red-500 dark:border-l-red-500':''}">
                    ${a.map(c => {
                        if (c.key === 'status') {
                            return `<td class="p-3 text-center border-r border-sap-border/20">
@@ -2219,9 +2452,13 @@ function handleHelpEasterEgg() {
                                class="w-4 h-4 accent-[#10b981] opacity-70 cursor-not-allowed">
                            </td>`;
                        }
-                       const v = r[c.key]||'';
+                       const changes = errorsMap[r.posicion] || {};
+                       const changedValue = changes[c.key] !== undefined ? changes[c.key] : undefined;
+                       const v = changedValue !== undefined ? changedValue : (r[c.key]||'');
                        const isElementCol = v && c.key.includes('_elemento');
-                       return `<td class="p-3 text-xs border-r border-sap-border/20 ${isElementCol?'font-bold text-sap-blue cursor-pointer hover:underline':''}" 
+                       const isCellModified = changedValue !== undefined || (c.key === 'orden' && r.orderChanged && !r.deleted);
+                       const cellClass = isCellModified ? (c.key === 'orden' && r.orderChanged ? 'cell-order-changed' : 'cell-modified') : '';
+                       return `<td class="p-3 text-xs border-r border-sap-border/20 ${isElementCol?'font-bold text-sap-blue cursor-pointer hover:underline':''} ${cellClass}"
                                    style="width: ${c.width}px;" 
                                    ${isElementCol ? `onclick="applyTableFilter('${v}')"` : ''}>
                                    <div class="truncate">${v}</div>

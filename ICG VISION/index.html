@@ -165,11 +165,12 @@
                <button onclick="openProgressMap()" class="p-1.5 text-amber-500 hover:bg-amber-500/10 rounded transition-all" title="VER MAPA DE PROGRESO"><i data-lucide="map" class="w-6 h-6"></i></button>
                <div class="relative" id="incidenciasMenuContainer">
                    <button onclick="toggleIncidenciasMenu()" id="btnIncidencias" class="p-1.5 text-red-500 hover:bg-red-500/10 rounded transition-all relative" title="INCIDENCIAS"><i data-lucide="triangle-alert" class="w-6 h-6"></i><span id="errorBadge" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center"></span></button>
-                   <div id="incidenciasDropdown" class="hidden absolute right-0 top-10 w-52 bg-white dark:bg-slate-800 border border-sap-border rounded-xl shadow-2xl z-[200] overflow-hidden">
+                   <div id="incidenciasDropdown" class="hidden absolute right-0 top-10 w-64 bg-white dark:bg-slate-800 border border-sap-border rounded-xl shadow-2xl z-[200] overflow-hidden">
                        <div class="px-3 pt-3 pb-1"><p class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Incidencias</p></div>
-                       <button onclick="activateIncidenciaMode()" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-sap-blue/10"><span>Notificar incidencia</span></button>
-                       <div class="h-px bg-sap-border mx-3"></div>
-                       <button onclick="exportErrorReport(); toggleIncidenciasMenu()" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-sap-blue/10"><span>Exportar incidencias</span></button>
+                       <button onclick="activateIncidenciaMode()" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-sap-blue/10"><span>Corregir Incidencia</span></button>
+                       <button onclick="toggleIncidenciasMenu(); openAddCableModal()" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-sap-blue/10"><span>Añadir Cable Nuevo</span></button>
+                       <button onclick="toggleIncidenciasMenu(); openDeleteCableModal()" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-sap-blue/10"><span>Eliminar Cable Completo</span></button>
+                       <button onclick="toggleIncidenciasMenu(); exportErrorReport()" class="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-sap-blue/10"><span>Exportar incidencias</span></button>
                    </div>
                </div>
            </div>
@@ -300,18 +301,123 @@
        </div>
    </div>
 
+   <!-- Modal Gestión de Cable -->
+   <div id="cableCrudModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-[265] p-4">
+       <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+           <div class="p-5 border-b border-sap-border flex items-start justify-between gap-4 bg-sap-shell text-white">
+               <div class="max-w-[70%]">
+                   <h2 id="crudModalTitle" class="text-base font-bold uppercase tracking-widest">Añadir Cable Nuevo</h2>
+                   <p class="text-xs text-slate-200 mt-1">POS es un identificador inmutable y se establece automáticamente. Ajusta el orden y los datos mínimos del cable.</p>
+               </div>
+               <button onclick="closeCableModal()" class="text-white"><i data-lucide="x"></i></button>
+           </div>
+           <div class="p-6 overflow-y-auto flex-1 bg-sap-bg dark:bg-sap-darkBg text-sap-text dark:text-slate-300">
+               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">POS</label>
+                       <input id="crudPosicion" type="text" readonly class="w-full rounded-fiori border border-sap-border bg-slate-100 dark:bg-slate-700 px-3 py-2 text-sm text-slate-600 dark:text-slate-200 cursor-not-allowed" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Orden</label>
+                       <input id="crudOrden" type="number" min="1" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Número secuencial" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Código cable</label>
+                       <input id="crudCodCable" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Código" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Sección</label>
+                       <input id="crudSeccion" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Ej. 0,5" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Longitud</label>
+                       <input id="crudLongitud" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Longitud" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Marcado</label>
+                       <input id="crudMarcado" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Marcado" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Cable / Marca</label>
+                       <input id="crudCableMarca" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Cable / Marca" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">De Elemento</label>
+                       <input id="crudDeElemento" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Elemento origen" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">De Punto Conexión</label>
+                       <input id="crudDePunto" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="De Punto" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">De Terminal</label>
+                       <input id="crudDeTerminal" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="De Terminal" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">De Manguito</label>
+                       <input id="crudDeManguito" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="De Manguito" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Para Elemento</label>
+                       <input id="crudParaElemento" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Elemento destino" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Para Punto Conexión</label>
+                       <input id="crudParaPunto" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Para Punto" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Para Terminal</label>
+                       <input id="crudParaTerminal" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Para Terminal" />
+                   </div>
+                   <div class="space-y-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Para Manguito</label>
+                       <input id="crudParaManguito" type="text" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Para Manguito" />
+                   </div>
+                   <div class="space-y-2 md:col-span-2">
+                       <label class="text-[10px] font-bold uppercase tracking-widest text-sap-secondaryText">Observaciones</label>
+                       <textarea id="crudObservaciones" rows="3" class="w-full rounded-fiori border border-sap-border bg-white dark:bg-slate-700 px-3 py-2 text-sm outline-none" placeholder="Observaciones adicionales"></textarea>
+                   </div>
+               </div>
+           </div>
+           <div class="p-5 border-t border-sap-border bg-white dark:bg-slate-900 flex justify-end gap-3">
+               <button onclick="closeCableModal()" class="px-4 py-2 rounded-fiori border border-sap-border text-sm font-bold">Cancelar</button>
+               <button id="crudSaveBtn" onclick="saveIncidencia()" class="px-4 py-2 rounded-fiori bg-sap-blue text-white text-sm font-bold">Añadir</button>
+           </div>
+       </div>
+   </div>
+
+   <div id="deleteCableModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-[265] p-4">
+       <div class="w-full max-w-md rounded-[32px] bg-white dark:bg-slate-900 overflow-hidden shadow-2xl">
+           <div class="flex items-center justify-between gap-3 p-5 border-b border-sap-border">
+               <div>
+                   <h2 class="text-base font-bold uppercase tracking-widest">Eliminar Cable</h2>
+                   <p class="text-xs text-slate-500">Introduce la POS del cable que quieres eliminar.</p>
+               </div>
+               <button onclick="closeDeleteCableModal()" class="text-slate-400 hover:text-slate-600 dark:text-slate-300 dark:hover:text-slate-100"><i data-lucide="x"></i></button>
+           </div>
+           <div class="p-5 space-y-4">
+               <label class="block text-xs uppercase tracking-wider text-slate-400">POS</label>
+               <input id="deleteCablePos" type="text" placeholder="Ej: 101" class="w-full rounded-lg border border-sap-border bg-sap-bg px-4 py-3 text-sm text-sap-text outline-none focus:border-sap-blue focus:ring-2 focus:ring-sap-blue/20" />
+               <div class="flex justify-end gap-3">
+                   <button onclick="closeDeleteCableModal()" class="px-4 py-2 rounded-fiori border border-sap-border text-sm font-bold">Cancelar</button>
+                   <button onclick="confirmDeleteCable()" class="px-4 py-2 rounded-fiori bg-red-500 text-white text-sm font-bold hover:bg-red-600">Eliminar</button>
+               </div>
+           </div>
+       </div>
+   </div>
+
    <!-- Help Manual Modal -->
    <div id="helpModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden items-center justify-center z-[250] p-4 text-left">
-      <div class="bg-white dark:bg-sap-darkCard max-w-3xl w-full rounded-xl shadow-2xl border border-sap-border overflow-hidden flex flex-col max-h-[90vh]">
-          <div class="bg-sap-shell p-4 flex justify-between items-center text-white shrink-0">
-              <div class="flex items-center gap-3"><div onclick="handleHelpEasterEgg()" class="cursor-default"><i data-lucide="help-circle" class="w-5 h-5 text-sap-blue"></i></div><h3 class="font-bold text-sm uppercase tracking-widest">Manual de Usuario</h3></div>
-              <button onclick="toggleHelp()"><i data-lucide="x"></i></button>
-          </div>
-          <div class="p-6 overflow-y-auto custom-scrollbar space-y-8 bg-sap-bg dark:bg-sap-darkBg text-sap-text dark:text-slate-300">
-              <div id="easterEggMessage" class="hidden mb-4 p-4 bg-sap-blue/10 border border-sap-blue/30 rounded-xl text-center animate-bounce"><p class="text-xs font-bold text-sap-blue">Este programa ha sido desarrollado por David Gutiérrez Pastor.</p></div>
-              <section><h4 class="text-xs font-black text-sap-blue uppercase mb-4 border-b border-sap-blue/20 pb-1">1. Control de Vistas y Datos</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div class="flex gap-3 bg-white dark:bg-sap-darkCard p-3 rounded-lg border border-sap-border shadow-sm"><div class="p-2 bg-sap-shell/5 rounded h-fit"><i data-lucide="panel-left" class="w-5 h-5 text-sap-blue"></i></div><div><p class="text-xs font-bold">Panel Lateral</p><p class="text-[11px] leading-tight opacity-80">Muestra datos del equipo y el resumen de materiales por elemento seleccionado.</p></div></div></div></section>
-          </div>
-      </div>
+       <div class="bg-white dark:bg-sap-darkCard max-w-3xl w-full rounded-xl shadow-2xl border border-sap-border overflow-hidden flex flex-col max-h-[90vh]">
+           <div class="bg-sap-shell p-4 flex justify-between items-center text-white shrink-0">
+               <div class="flex items-center gap-3"><div onclick="handleHelpEasterEgg()" class="cursor-default"><i data-lucide="help-circle" class="w-5 h-5 text-sap-blue"></i></div><h3 class="font-bold text-sm uppercase tracking-widest">Manual de Usuario</h3></div>
+               <button onclick="toggleHelp()"><i data-lucide="x"></i></button>
+           </div>
+           <div class="p-6 overflow-y-auto custom-scrollbar space-y-8 bg-sap-bg dark:bg-sap-darkBg text-sap-text dark:text-slate-300">
+               <div id="easterEggMessage" class="hidden mb-4 p-4 bg-sap-blue/10 border border-sap-blue/30 rounded-xl text-center animate-bounce"><p class="text-xs font-bold text-sap-blue">Este programa ha sido desarrollado por David Gutiérrez Pastor.</p></div>
+               <section><h4 class="text-xs font-black text-sap-blue uppercase mb-4 border-b border-sap-blue/20 pb-1">1. Control de Vistas y Datos</h4><div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div class="flex gap-3 bg-white dark:bg-sap-darkCard p-3 rounded-lg border border-sap-border shadow-sm"><div class="p-2 bg-sap-shell/5 rounded h-fit"><i data-lucide="panel-left" class="w-5 h-5 text-sap-blue"></i></div><div><p class="text-xs font-bold">Panel Lateral</p><p class="text-[11px] leading-tight opacity-80">Muestra datos del equipo y el resumen de materiales por elemento seleccionado.</p></div></div></div></section>
+           </div>
+       </div>
    </div>
 
    <!-- Settings Dropdown -->

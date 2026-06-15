@@ -751,7 +751,7 @@ function toggleProgress(pos, contextElement = null) {
     const percent = totalConnections > 0 ? Math.round((completedConnections / totalConnections) * 100) : 0;
 
     // Actualización de elementos en la interfaz de usuario (UI)
-    const progressBar = document.getElementById('globalProgressBar');
+    const progressBar = document.getElementById('globalProgressFill');
     const progressText = document.getElementById('globalProgressText');
 
     if (progressBar) progressBar.style.width = `${percent}%`;

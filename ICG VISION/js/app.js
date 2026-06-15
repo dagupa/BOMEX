@@ -933,8 +933,10 @@ function toggleProgress(pos, contextElement = null) {
            const changes = {};
            inputs.forEach(input => {
                const key = input.dataset.key;
-               const original = row[key] || '';
-               if (input.value !== original) changes[key] = input.value;
+               // Normalizamos a texto para evitar falsos cambios por tipo (number vs string).
+               const original = String(row[key] ?? '');
+               const current = String(input.value ?? '');
+               if (current !== original) changes[key] = input.value;
            });
            if (Object.keys(changes).length === 0) {
                delete errorsMap[_errorModalPosicion];

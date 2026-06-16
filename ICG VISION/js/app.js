@@ -1,5 +1,76 @@
     // Variable para guardado de progreso
         let hasUnsavedChanges = false;
+    // Handle de fichero reemplazado por _saveDirHandle gestionado por IndexedDB (ver bloque Administrador)
+    // Autoguardado: cada 10 cambios O cada 10 minutos (solo si hay cambios pendientes)
+    let _autoSaveCount = 0;
+    const AUTO_SAVE_THRESHOLD = 10;
+    const AUTO_SAVE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutos
+    let _autoSaveTimer = null;
+
+    function _startAutoSaveTimer() {
+        if (_autoSaveTimer) clearInterval(_autoSaveTimer);
+        _autoSaveTimer = setInterval(() => {
+            if (hasUnsavedChanges) autoSaveToFolderOrBackup();
+        }, AUTO_SAVE_INTERVAL_MS);
+    }
+
+    function registerChange() {
+        hasUnsavedChanges = true;
+        updateSaveButton();
+        _autoSaveCount++;
+        if (_autoSaveCount >= AUTO_SAVE_THRESHOLD) {
+            _autoSaveCount = 0;
+            autoSaveToFolderOrBackup();
+        }
+    }
+
+    function _buildSaveData() {
+        return {
+            equipo: reportMetadata?.equipo || 'default',
+            fechaExportacion: new Date().toISOString(),
+            progress: progressMap,
+            errors: errorsMap,
+            rows: rawData
+        };
+    }
+
+    function _getInternalSnapshotKey() {
+        const equipo = reportMetadata?.equipo || 'default';
+        return `ICGVision_AutoSnapshot_${equipo.replace(/\s+/g, '_')}`;
+    }
+
+    // Copia de seguridad silenciosa dentro del navegador (red de seguridad ante cierres
+    // inesperados). No marca los datos como guardados ni desactiva el botón.
+    function _writeLocalBackup() {
+        try {
+            if (!reportMetadata || !reportMetadata.equipo) return;
+            saveProgress();
+            saveErrors();
+            localStorage.setItem(_getInternalSnapshotKey(), JSON.stringify(_buildSaveData()));
+        } catch (e) {
+            console.error('Copia de seguridad interna fallida:', e);
+        }
+    }
+
+    // Autoguardado automático y transparente: si hay carpeta configurada con permiso,
+    // escribe el JSON completo en ella sin molestar al usuario. Si no la hay, conserva
+    // solo la copia interna y deja el botón "Guardar cambios" activo.
+    async function autoSaveToFolderOrBackup() {
+        _writeLocalBackup();
+        if (!reportMetadata || !reportMetadata.equipo) return;
+        if (!_saveDirHandle) return; // sin carpeta: el botón permanece activo
+        try {
+            await _writeJsonToDir(_saveDirHandle, _buildSaveData());
+            hasUnsavedChanges = false;
+            updateSaveButton();
+        } catch (e) {
+            console.error('Autoguardado en carpeta fallido:', e);
+            if (e.name === 'NotAllowedError' || e.name === 'SecurityError') {
+                _saveDirHandle = null;
+                _updateAdminUI();
+            }
+        }
+    }
     // Variables para el easter eg
     let helpClickCount = 0;
    let helpClickTimer;
@@ -667,6 +738,214 @@
        function loadProgress() { try { const stored = localStorage.getItem(getStorageKey()); progressMap = stored ? JSON.parse(stored) : {}; } catch (e) { progressMap = {}; } }
        function saveErrors() { try { localStorage.setItem(getStorageKey() + '_errors', JSON.stringify(errorsMap)); } catch (e) { console.error("Error saving errors", e); } }
        function loadErrors() { try { const stored = localStorage.getItem(getStorageKey() + '_errors'); errorsMap = stored ? JSON.parse(stored) : {}; } catch (e) { errorsMap = {}; } }
+
+       // ── ADMINISTRADOR: carpeta de autoguardado (IndexedDB para persistir el DirectoryHandle) ──
+       const _IDB_NAME = 'ICGVisionAdmin';
+       const _IDB_STORE = 'handles';
+       let _saveDirHandle = null;     // DirectoryHandle activo con permiso concedido (solo http/https)
+       let _permWarned = false;       // Reservado para avisos de autoguardado
+
+       function _openAdminDB() {
+           return new Promise((resolve, reject) => {
+               const req = indexedDB.open(_IDB_NAME, 1);
+               req.onupgradeneeded = e => e.target.result.createObjectStore(_IDB_STORE);
+               req.onsuccess = e => resolve(e.target.result);
+               req.onerror = () => reject(req.error);
+           });
+       }
+
+       async function _loadDirHandle() {
+           try {
+               const db = await _openAdminDB();
+               return new Promise(resolve => {
+                   const tx = db.transaction(_IDB_STORE, 'readonly');
+                   const req = tx.objectStore(_IDB_STORE).get('saveDir');
+                   req.onsuccess = () => resolve(req.result || null);
+                   req.onerror = () => resolve(null);
+               });
+           } catch { return null; }
+       }
+
+       async function _storeDirHandle(handle) {
+           try {
+               const db = await _openAdminDB();
+               return new Promise((resolve, reject) => {
+                   const tx = db.transaction(_IDB_STORE, 'readwrite');
+                   tx.objectStore(_IDB_STORE).put(handle, 'saveDir');
+                   tx.oncomplete = resolve;
+                   tx.onerror = () => reject(tx.error);
+               });
+           } catch (e) { console.error('Error guardando handle en IDB', e); }
+       }
+
+       async function _clearDirHandle() {
+           try {
+               const db = await _openAdminDB();
+               return new Promise(resolve => {
+                   const tx = db.transaction(_IDB_STORE, 'readwrite');
+                   tx.objectStore(_IDB_STORE).delete('saveDir');
+                   tx.oncomplete = resolve;
+               });
+           } catch { /* silencioso */ }
+       }
+
+       // Escribe el JSON completo (formateado) en la carpeta indicada con el nombre del equipo.
+       async function _writeJsonToDir(dirHandle, data) {
+           const fileName = `ICG_${(data.equipo || 'default').replace(/[^a-zA-Z0-9]/g, '_')}.json`;
+           const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
+           const writable = await fileHandle.createWritable();
+           await writable.write(JSON.stringify(data, null, 2));
+           await writable.close();
+           return fileName;
+       }
+
+       // ¿Está el contexto bloqueado para escritura en carpetas? En file:// el navegador
+       // prohíbe createWritable, así que la carpeta no sirve y los cambios se descargan.
+       function _folderWritesBlocked() {
+           return location.protocol === 'file:';
+       }
+
+       function _updateAdminUI() {
+           const label     = document.getElementById('adminSaveFolderLabel');
+           const clearBtn  = document.getElementById('btnClearSaveFolder');
+           const btnLabel  = document.getElementById('btnSelectFolderLabel');
+           const selectBtn = document.getElementById('btnSelectFolder');
+           const hint      = document.getElementById('adminFolderHint');
+           if (!label) return;
+           label.classList.remove('text-sap-secondaryText', 'text-sap-blue', 'text-amber-500', 'font-bold');
+
+           // En file:// no se puede escribir en carpetas: los cambios se descargan.
+           if (_folderWritesBlocked()) {
+               label.textContent = 'Carpeta de descargas del navegador';
+               label.classList.add('text-sap-blue', 'font-bold');
+               if (clearBtn) clearBtn.classList.add('hidden');
+               if (selectBtn) selectBtn.classList.add('hidden');
+               if (hint) hint.textContent = 'Los cambios se guardan como archivo en la carpeta de Descargas del navegador. Para cambiar el destino, ajusta la carpeta de descargas en la configuración del navegador (Chrome/Edge › Descargas).';
+               return;
+           }
+
+           if (_saveDirHandle) {
+               label.textContent = _saveDirHandle.name;
+               label.classList.add('text-sap-blue', 'font-bold');
+               if (clearBtn) clearBtn.classList.remove('hidden');
+               if (selectBtn) selectBtn.classList.remove('hidden');
+               if (btnLabel) btnLabel.textContent = 'Cambiar carpeta';
+               if (hint) hint.textContent = 'Los guardados se escribirán directamente en esta carpeta.';
+           } else {
+               label.textContent = 'Sin carpeta definida';
+               label.classList.add('text-sap-secondaryText');
+               if (clearBtn) clearBtn.classList.add('hidden');
+               if (selectBtn) selectBtn.classList.remove('hidden');
+               if (btnLabel) btnLabel.textContent = 'Establecer carpeta';
+               if (hint) hint.textContent = 'Selecciona la carpeta donde se guardarán los archivos JSON.';
+           }
+       }
+
+       async function adminSelectSaveFolder() {
+           if (!window.showDirectoryPicker) {
+               showNotification('Tu navegador no soporta selección de carpeta. Usa Chrome o Edge.', 'error');
+               return;
+           }
+           try {
+               const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+               _saveDirHandle = handle;
+               _permWarned = false;
+               await _storeDirHandle(handle);
+               _updateAdminUI();
+               showNotification(`Carpeta configurada: ${handle.name}`, 'success');
+           } catch (e) {
+               if (e.name !== 'AbortError') showNotification('Error al seleccionar carpeta', 'error');
+           }
+       }
+
+       async function adminClearSaveFolder() {
+           _saveDirHandle = null;
+           _permWarned = false;
+           await _clearDirHandle();
+           _updateAdminUI();
+           showNotification('Carpeta de guardado eliminada', 'success');
+       }
+
+       async function _initAdminDirHandle() {
+           _saveDirHandle = null;
+           // En file:// la carpeta no sirve (escritura bloqueada): no cargamos nada.
+           if (_folderWritesBlocked()) {
+               _updateAdminUI();
+               return;
+           }
+           try {
+               const dirHandle = await _loadDirHandle();
+               if (dirHandle) {
+                   // queryPermission solo consulta; nunca muestra ningún diálogo.
+                   const perm = await dirHandle.queryPermission({ mode: 'readwrite' });
+                   if (perm === 'granted') _saveDirHandle = dirHandle;
+               }
+           } catch (e) {
+               console.error('No se pudo cargar la configuración de carpeta', e);
+           }
+           _updateAdminUI();
+       }
+
+       // Comprueba que realmente se puede escribir en la carpeta (en file:// el permiso
+       // puede figurar como concedido pero las escrituras fallan). Escribe y borra un
+       // pequeño fichero de prueba.
+       async function _verifyDirWritable(handle) {
+           try {
+               const fh = await handle.getFileHandle('.icgvision_write_test', { create: true });
+               const w = await fh.createWritable();
+               await w.write('ok');
+               await w.close();
+               try { await handle.removeEntry('.icgvision_write_test'); } catch { /* no crítico */ }
+               return true;
+           } catch {
+               return false;
+           }
+       }
+
+       // ── PANEL ADMINISTRADOR (acceso protegido) ──
+       const ADMIN_PASSWORD = 'IFA';
+
+       function openAdminPanel() {
+           // Cerrar el dropdown de ajustes
+           const dd = document.getElementById('settingsDropdown');
+           if (dd) dd.classList.add('hidden');
+           // Resetear a estado de login (se pide contraseña cada vez)
+           const modal = document.getElementById('adminModal');
+           const loginStep = document.getElementById('adminLoginStep');
+           const optionsStep = document.getElementById('adminOptionsStep');
+           const pwInput = document.getElementById('adminPasswordInput');
+           const pwError = document.getElementById('adminPasswordError');
+           if (loginStep) loginStep.classList.remove('hidden');
+           if (optionsStep) optionsStep.classList.add('hidden');
+           if (pwError) pwError.classList.add('hidden');
+           if (pwInput) pwInput.value = '';
+           if (modal) { modal.classList.remove('hidden'); modal.classList.add('flex'); }
+           if (window.lucide) lucide.createIcons();
+           setTimeout(() => pwInput && pwInput.focus(), 50);
+       }
+
+       function closeAdminPanel() {
+           const modal = document.getElementById('adminModal');
+           if (modal) { modal.classList.add('hidden'); modal.classList.remove('flex'); }
+       }
+
+       async function adminCheckPassword() {
+           const pwInput = document.getElementById('adminPasswordInput');
+           const pwError = document.getElementById('adminPasswordError');
+           if (!pwInput) return;
+           if (pwInput.value === ADMIN_PASSWORD) {
+               document.getElementById('adminLoginStep').classList.add('hidden');
+               document.getElementById('adminOptionsStep').classList.remove('hidden');
+               if (pwError) pwError.classList.add('hidden');
+               if (window.lucide) lucide.createIcons();
+               _updateAdminUI();
+           } else {
+               if (pwError) pwError.classList.remove('hidden');
+               pwInput.value = '';
+               pwInput.focus();
+           }
+       }
+       // ── FIN PANEL ADMINISTRADOR ──
        
        function clearAllProgress() {
            if (!window.confirm('¿Seguro que quieres reiniciar el progreso?\nEsta acción no se puede deshacer.')) return;
@@ -714,8 +993,7 @@ function toggleProgress(pos, contextElement = null) {
    }
    
    saveProgress();
-    hasUnsavedChanges = true;
-	updateSaveButton();
+   registerChange();
    updateGlobalProgress();
    renderTable();
    
@@ -944,8 +1222,7 @@ function toggleProgress(pos, contextElement = null) {
                errorsMap[_errorModalPosicion] = { ...changes };
            }
            saveErrors();
-            hasUnsavedChanges = true;
-			updateSaveButton();
+           registerChange();
            closeErrorModal();
            renderTable();
            updateErrorBadge();
@@ -959,8 +1236,7 @@ function toggleProgress(pos, contextElement = null) {
            if (!_errorModalPosicion) return;
            delete errorsMap[_errorModalPosicion];
            saveErrors();
-            hasUnsavedChanges = true;
-			updateSaveButton();
+           registerChange();
            closeErrorModal();
            renderTable();
            updateErrorBadge();
@@ -1162,50 +1438,71 @@ function showNotification(msg, type) {
     if (!toast) return;
     const span = toast.querySelector('span');
     if (span) span.innerText = msg;
+    toast.classList.remove('toast-success', 'toast-error', 'toast-warning');
+    if (type === 'error') toast.classList.add('toast-error');
+    else if (type === 'warning') toast.classList.add('toast-warning');
+    else toast.classList.add('toast-success');
     toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), 3500);
+    setTimeout(() => toast.classList.remove('show'), type === 'warning' ? 5000 : 3500);
 }
-function saveDataToFile() {
+function _markSaved() {
+    hasUnsavedChanges = false;
+    _autoSaveCount = 0;
+    _permWarned = false;
+    _startAutoSaveTimer();
+    updateSaveButton();
+}
+
+// Descarga silenciosa sin ningún diálogo (el navegador guarda en la carpeta de descargas).
+function _downloadJson(data) {
+    const fileName = `ICG_${(data.equipo || 'default').replace(/[^a-zA-Z0-9]/g, '_')}.json`;
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fileName;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+async function saveDataToFile() {
    try {
        if (!reportMetadata || !reportMetadata.equipo) {
            showNotification('No hay equipo cargado', 'error');
            return;
        }
- 
-       const data = {
-           equipo: reportMetadata.equipo,
-           fechaExportacion: new Date().toISOString(),
-           progress: progressMap,
-           errors: errorsMap,
-           rows: rawData
-       };
- 
-       const json = JSON.stringify(data, null, 2);
- 
-       const blob = new Blob([json], { type: "application/json" });
-       const url = URL.createObjectURL(blob);
- 
-       const fileName = `ICG_${reportMetadata.equipo.replace(/[^a-zA-Z0-9]/g, '_')}.json`;
- 
-       const a = document.createElement('a');
-       a.href = url;
-       a.download = fileName;
- 
-       document.body.appendChild(a);
-       a.click();
- 
-       document.body.removeChild(a);
-       URL.revokeObjectURL(url);
- 
-       // ✅ MUY IMPORTANTE → reset de cambios
-       hasUnsavedChanges = false;
-	   updateSaveButton();
- 
-       showNotification('Datos guardados correctamente en archivo', 'success');
- 
+
+       // Copia de seguridad interna siempre, antes de intentar escribir en disco.
+       _writeLocalBackup();
+
+       const data = _buildSaveData();
+
+       // ── Carpeta con permiso activo (solo http/https) ────────────────────────────────
+       // En file:// el navegador bloquea createWritable, así que la carpeta no se usa.
+       if (_saveDirHandle && !_folderWritesBlocked()) {
+           try {
+               await _writeJsonToDir(_saveDirHandle, data);
+               _markSaved();
+               showNotification(`Guardado en "${_saveDirHandle.name}" ✓`, 'success');
+               return;
+           } catch (e) {
+               if (e.name !== 'NotAllowedError' && e.name !== 'SecurityError') throw e;
+               // Permiso/escritura no disponible → caemos a la descarga.
+               _saveDirHandle = null;
+               _updateAdminUI();
+           }
+       }
+
+       // ── Descarga del navegador ──────────────────────────────────────────────────────
+       // Vía fiable en file:// (y fallback general). El archivo se guarda en la carpeta
+       // de Descargas configurada en el navegador.
+       _downloadJson(data);
+       _markSaved();
+       showNotification('Cambios guardados en la carpeta de descargas del navegador ✓', 'success');
+
    } catch (e) {
        console.error('Error guardando archivo:', e);
-       showNotification('Error al guardar archivo', 'error');
+       showNotification('Error al guardar archivo. Los cambios siguen pendientes ⚠️', 'error');
    }
 }
 
@@ -1313,8 +1610,7 @@ function confirmDeleteCable() {
     row.modificado = true;
     delete errorsMap[posicion];
     delete progressMap[posicion];
-    hasUnsavedChanges = true;
-    updateSaveButton();
+    registerChange();
     renderTable();
     updateErrorBadge();
     closeDeleteCableModal();
@@ -1385,8 +1681,7 @@ function saveIncidencia() {
 
     rawData.push(newRow);
     normalizeOrdenes();
-    hasUnsavedChanges = true;
-    updateSaveButton();
+    registerChange();
     renderTable();
     closeCableModal();
     showNotification('Cable añadido correctamente y orden actualizado', 'success');
@@ -1408,8 +1703,7 @@ function deleteCableComplete() {
     row.modificado = true;
     delete errorsMap[posTrim];
     delete progressMap[posTrim];
-    hasUnsavedChanges = true;
-    updateSaveButton();
+    registerChange();
     renderTable();
     updateErrorBadge();
     showNotification(`Cable POS ${posTrim} marcado como eliminado`, 'success');
@@ -1700,8 +1994,7 @@ function nextDetailStep() {
    });
    
    saveProgress();
-    hasUnsavedChanges = true;
-	updateSaveButton();
+   registerChange();
    updateGlobalProgress();
    
    // Control secuencial de pasos del asistente Modo Visión
@@ -2039,9 +2332,8 @@ function closeGraphicalView() {
  
            // 2. Persistencia y actualización de datos de fondo
            saveProgress();
-		   hasUnsavedChanges = true;
-			updateSaveButton();
-		   updateGlobalProgress();
+           registerChange();
+           updateGlobalProgress();
            
            // 3. REFRESH VISUAL: Volvemos a dibujar el diagrama para que se vea todo verde
            // pero NO llamamos a closeGraphicalView(), así permaneces en la pantalla
@@ -2505,6 +2797,11 @@ function handleHelpEasterEgg() {
            lucide.createIcons();
        }
        window.onload = () => {
+           // 0. Cargar carpeta de autoguardado del Administrador (IndexedDB)
+           _initAdminDirHandle();
+           // 0b. Iniciar temporizador de autoguardado (cada 10 minutos si hay cambios)
+           _startAutoSaveTimer();
+
            // 1. Recuperar tema persistido
            const savedTheme = localStorage.getItem('ICGVision_Theme');
            const themeLabel = document.getElementById('themeLabel');

@@ -421,11 +421,78 @@
    </div>
 
    <!-- Settings Dropdown -->
-   <div id="settingsDropdown" class="hidden fixed top-12 right-12 w-80 bg-white dark:bg-sap-darkCard border border-sap-border rounded-sm shadow-2xl z-[120] p-4 text-sap-text dark:text-white text-left">
-       <div class="flex items-center justify-between mb-4 border-b pb-2"><span class="text-xs font-bold uppercase">Ajustes</span><button onclick="toggleSettings()"><i data-lucide="x" class="w-4 h-4 text-sap-secondaryText"></i></button></div>
-       <div class="space-y-2">
-           <button onclick="clearAllProgress()" class="w-full flex items-center gap-3 px-3 py-2.5 border border-red-200 text-red-600 rounded-fiori hover:bg-red-50 text-xs font-bold mt-4"><i data-lucide="rotate-ccw" class="w-4 h-4"></i><span>Reiniciar Progreso de este Equipo</span></button>
-           <button onclick="toggleDarkMode()" class="w-full flex items-center gap-3 px-3 py-2.5 border rounded-fiori hover:bg-sap-bg transition-colors text-xs text-left"><i data-lucide="moon" class="w-4 h-4"></i><span id="themeLabel">Modo Oscuro</span></button>
+   <div id="settingsDropdown" class="hidden fixed top-12 right-12 w-96 bg-white dark:bg-sap-darkCard border border-sap-border rounded-sm shadow-2xl z-[120] text-sap-text dark:text-white text-left overflow-hidden">
+       <!-- Cabecera -->
+       <div class="flex items-center justify-between px-4 py-3 border-b border-sap-border">
+           <span class="text-xs font-bold uppercase tracking-widest">Ajustes</span>
+           <button onclick="toggleSettings()"><i data-lucide="x" class="w-4 h-4 text-sap-secondaryText"></i></button>
+       </div>
+
+       <!-- Sección: Apariencia / General -->
+       <div class="px-4 py-3 space-y-2 border-b border-sap-border">
+           <p class="text-[9px] font-black uppercase tracking-widest text-sap-secondaryText mb-2">General</p>
+           <button onclick="toggleDarkMode()" class="w-full flex items-center gap-3 px-3 py-2.5 border border-sap-border rounded-fiori hover:bg-sap-bg transition-colors text-xs text-left">
+               <i data-lucide="moon" class="w-4 h-4"></i><span id="themeLabel">Modo Oscuro</span>
+           </button>
+           <button onclick="clearAllProgress()" class="w-full flex items-center gap-3 px-3 py-2.5 border border-red-200 text-red-600 rounded-fiori hover:bg-red-50 text-xs font-bold">
+               <i data-lucide="rotate-ccw" class="w-4 h-4"></i><span>Reiniciar Progreso de este Equipo</span>
+           </button>
+       </div>
+
+       <!-- Sección: Administrador -->
+       <div class="px-4 py-3">
+           <button onclick="openAdminPanel()" class="w-full flex items-center gap-3 px-3 py-2.5 border border-sap-blue/40 text-sap-blue rounded-fiori hover:bg-sap-blue/10 transition-colors text-xs font-bold text-left">
+               <i data-lucide="shield" class="w-4 h-4"></i><span>Administrador</span>
+               <i data-lucide="lock" class="w-3.5 h-3.5 ml-auto opacity-60"></i>
+           </button>
+       </div>
+   </div>
+
+   <!-- Modal: Panel de Administrador (protegido por contraseña) -->
+   <div id="adminModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[300] items-center justify-center p-4">
+       <div class="w-full max-w-sm bg-white dark:bg-sap-darkCard border border-sap-border rounded-lg shadow-2xl text-sap-text dark:text-white overflow-hidden">
+           <!-- Cabecera -->
+           <div class="flex items-center justify-between px-5 py-3 bg-gradient-to-r from-sap-shell to-sap-blue text-white">
+               <div class="flex items-center gap-2">
+                   <i data-lucide="shield" class="w-4 h-4"></i>
+                   <span class="text-xs font-black uppercase tracking-widest">Administrador</span>
+               </div>
+               <button onclick="closeAdminPanel()"><i data-lucide="x" class="w-4 h-4"></i></button>
+           </div>
+
+           <!-- Paso 1: Login -->
+           <div id="adminLoginStep" class="p-5 space-y-3">
+               <p class="text-[11px] text-sap-secondaryText leading-snug">Introduce la contraseña de administrador para acceder a las opciones avanzadas.</p>
+               <input type="password" id="adminPasswordInput" placeholder="Contraseña"
+                   onkeydown="if(event.key==='Enter') adminCheckPassword()"
+                   class="w-full px-3 py-2.5 rounded-fiori border border-sap-border bg-sap-bg dark:bg-sap-darkBg text-sm outline-none focus:ring-2 focus:ring-sap-blue/40 dark:text-white">
+               <p id="adminPasswordError" class="hidden text-[11px] text-red-500 font-bold flex items-center gap-1"><i data-lucide="alert-circle" class="w-3.5 h-3.5"></i>Contraseña incorrecta</p>
+               <button onclick="adminCheckPassword()" class="w-full flex items-center justify-center gap-2 px-3 py-2.5 bg-sap-blue text-white rounded-fiori hover:bg-sap-darkBlue transition-colors text-xs font-bold">
+                   <i data-lucide="log-in" class="w-3.5 h-3.5"></i>Acceder
+               </button>
+           </div>
+
+           <!-- Paso 2: Opciones (oculto hasta validar) -->
+           <div id="adminOptionsStep" class="hidden p-5 space-y-3">
+               <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+                   <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                   <span class="text-[10px] font-bold uppercase tracking-wide">Acceso concedido</span>
+               </div>
+               <p class="text-[9px] font-black uppercase tracking-widest text-sap-secondaryText pt-1">Carpeta de cambios</p>
+               <p id="adminFolderHint" class="text-[10px] text-sap-secondaryText leading-snug">Selecciona la carpeta donde se guardarán los archivos JSON. Una vez configurada, los cambios se guardarán automáticamente en ella.</p>
+               <div class="flex items-center gap-2 px-3 py-2 rounded-fiori border border-sap-border bg-sap-bg dark:bg-sap-darkBg min-h-[2.25rem]">
+                   <i data-lucide="folder" class="w-3.5 h-3.5 text-sap-blue shrink-0"></i>
+                   <span id="adminSaveFolderLabel" class="text-[10px] font-mono text-sap-secondaryText truncate flex-1">Sin configurar</span>
+               </div>
+               <div class="flex gap-2">
+                   <button onclick="adminSelectSaveFolder()" id="btnSelectFolder" class="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-sap-blue text-white rounded-fiori hover:bg-sap-darkBlue transition-colors text-xs font-bold">
+                       <i data-lucide="folder-open" class="w-3.5 h-3.5"></i><span id="btnSelectFolderLabel">Establecer carpeta</span>
+                   </button>
+                   <button onclick="adminClearSaveFolder()" id="btnClearSaveFolder" class="hidden px-3 py-2.5 border border-red-200 text-red-500 rounded-fiori hover:bg-red-50 transition-colors text-xs font-bold" title="Eliminar carpeta configurada">
+                       <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                   </button>
+               </div>
+           </div>
        </div>
    </div>
 
@@ -529,7 +596,7 @@
    </div>
 
    <!-- Inicialización de Scripts en orden de precedencia lógica -->
-   <script src="js/master-data.js"></script>
-   <script src="js/app.js" defer></script>
+    <script src="js/master-data.js"></script>
+    <script src="js/app.js?v=folder-save-9" defer></script>
 </body>
 </html>

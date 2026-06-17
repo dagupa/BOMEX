@@ -60,15 +60,16 @@
         if (!reportMetadata || !reportMetadata.equipo) return;
         if (!_saveDirHandle) return; // sin carpeta: el botón permanece activo
         try {
+            // Autoguardado silencioso: solo si el permiso ya está concedido (sin diálogo).
+            const perm = await _saveDirHandle.queryPermission({ mode: 'readwrite' });
+            if (perm !== 'granted') return; // se guardará al pulsar "Guardar"
             await _writeJsonToDir(_saveDirHandle, _buildSaveData());
             hasUnsavedChanges = false;
             updateSaveButton();
         } catch (e) {
+            // No se pudo autoguardar en carpeta: conservamos la copia interna y el botón
+            // activo. NO borramos la carpeta configurada.
             console.error('Autoguardado en carpeta fallido:', e);
-            if (e.name === 'NotAllowedError' || e.name === 'SecurityError') {
-                _saveDirHandle = null;
-                _updateAdminUI();
-            }
         }
     }
     // Variables para el easter eg
@@ -740,10 +741,12 @@
        function loadErrors() { try { const stored = localStorage.getItem(getStorageKey() + '_errors'); errorsMap = stored ? JSON.parse(stored) : {}; } catch (e) { errorsMap = {}; } }
 
        // ── ADMINISTRADOR: carpeta de autoguardado (IndexedDB para persistir el DirectoryHandle) ──
-       const _IDB_NAME = 'ICGVisionAdmin';
-       const _IDB_STORE = 'handles';
-       let _saveDirHandle = null;     // DirectoryHandle activo con permiso concedido (solo http/https)
-       let _permWarned = false;       // Reservado para avisos de autoguardado
+     const _IDB_NAME = 'ICGVisionAdmin';
+     const _IDB_STORE = 'handles';
+     const _SAVE_DIR_NAME_KEY = 'ICGVision_SaveDirName';
+     let _saveDirHandle = null;     // DirectoryHandle activo con permiso concedido (solo http/https)
+     let _saveDirName = localStorage.getItem(_SAVE_DIR_NAME_KEY) || '';
+     let _permWarned = false;       // Reservado para avisos de autoguardado
 
        function _openAdminDB() {
            return new Promise((resolve, reject) => {
@@ -799,11 +802,9 @@
            return fileName;
        }
 
-       // ¿Está el contexto bloqueado para escritura en carpetas? En file:// el navegador
-       // prohíbe createWritable, así que la carpeta no sirve y los cambios se descargan.
-       function _folderWritesBlocked() {
-           return location.protocol === 'file:';
-       }
+       // ── Carpeta de guardado configurada por el Administrador ────────────────────────
+       // _saveDirHandle guarda la carpeta elegida. Se usa como punto de partida (startIn)
+       // del diálogo de guardado para que el explorador se abra directamente en ella.
 
        function _updateAdminUI() {
            const label     = document.getElementById('adminSaveFolderLabel');
@@ -814,30 +815,24 @@
            if (!label) return;
            label.classList.remove('text-sap-secondaryText', 'text-sap-blue', 'text-amber-500', 'font-bold');
 
-           // En file:// no se puede escribir en carpetas: los cambios se descargan.
-           if (_folderWritesBlocked()) {
-               label.textContent = 'Carpeta de descargas del navegador';
-               label.classList.add('text-sap-blue', 'font-bold');
-               if (clearBtn) clearBtn.classList.add('hidden');
-               if (selectBtn) selectBtn.classList.add('hidden');
-               if (hint) hint.textContent = 'Los cambios se guardan como archivo en la carpeta de Descargas del navegador. Para cambiar el destino, ajusta la carpeta de descargas en la configuración del navegador (Chrome/Edge › Descargas).';
-               return;
-           }
+           const configuredFolderName = _saveDirHandle?.name || _saveDirName;
 
-           if (_saveDirHandle) {
-               label.textContent = _saveDirHandle.name;
+           if (configuredFolderName) {
+               label.textContent = configuredFolderName;
                label.classList.add('text-sap-blue', 'font-bold');
                if (clearBtn) clearBtn.classList.remove('hidden');
                if (selectBtn) selectBtn.classList.remove('hidden');
                if (btnLabel) btnLabel.textContent = 'Cambiar carpeta';
-               if (hint) hint.textContent = 'Los guardados se escribirán directamente en esta carpeta.';
+               if (hint) hint.textContent = _isLocalFilePage()
+                   ? 'Al guardar, el explorador intentará abrirse en esta carpeta. Si el navegador bloquea la escritura local, se usará Descargas como respaldo.'
+                   : 'Al guardar, el explorador se abrirá directamente en esta carpeta. El usuario solo confirma.';
            } else {
-               label.textContent = 'Sin carpeta definida';
+               label.textContent = 'Sin configurar';
                label.classList.add('text-sap-secondaryText');
                if (clearBtn) clearBtn.classList.add('hidden');
                if (selectBtn) selectBtn.classList.remove('hidden');
-               if (btnLabel) btnLabel.textContent = 'Establecer carpeta';
-               if (hint) hint.textContent = 'Selecciona la carpeta donde se guardarán los archivos JSON.';
+               if (btnLabel) btnLabel.textContent = 'Configurar carpeta de guardado';
+               if (hint) hint.textContent = 'Elige la carpeta donde se guardarán los archivos. Quedará memorizada para futuros guardados.';
            }
        }
 
@@ -846,20 +841,31 @@
                showNotification('Tu navegador no soporta selección de carpeta. Usa Chrome o Edge.', 'error');
                return;
            }
+           // En file:// Chrome no concede permiso de escritura sobre la carpeta y el
+           // selector rechaza si se pide { mode: 'readwrite' }. Pedimos solo lectura: es
+           // suficiente para mostrar el nombre y para usarla como punto de partida
+           // (startIn) del diálogo de guardado. La escritura real ya tiene su respaldo.
+           let handle;
            try {
-               const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-               _saveDirHandle = handle;
-               _permWarned = false;
-               await _storeDirHandle(handle);
-               _updateAdminUI();
-               showNotification(`Carpeta configurada: ${handle.name}`, 'success');
+               handle = await window.showDirectoryPicker();
            } catch (e) {
-               if (e.name !== 'AbortError') showNotification('Error al seleccionar carpeta', 'error');
+               if (e.name === 'AbortError') return; // el usuario canceló: sin aviso
+               showNotification(`No se pudo seleccionar la carpeta: ${e.name}`, 'error');
+               return;
            }
+           _saveDirHandle = handle;
+           _saveDirName = handle.name;
+           localStorage.setItem(_SAVE_DIR_NAME_KEY, _saveDirName);
+           _permWarned = false;
+           _updateAdminUI();
+           await _storeDirHandle(handle);
+           showNotification(`Carpeta configurada: ${handle.name}`, 'success');
        }
 
        async function adminClearSaveFolder() {
            _saveDirHandle = null;
+           _saveDirName = '';
+           localStorage.removeItem(_SAVE_DIR_NAME_KEY);
            _permWarned = false;
            await _clearDirHandle();
            _updateAdminUI();
@@ -867,18 +873,14 @@
        }
 
        async function _initAdminDirHandle() {
-           _saveDirHandle = null;
-           // En file:// la carpeta no sirve (escritura bloqueada): no cargamos nada.
-           if (_folderWritesBlocked()) {
-               _updateAdminUI();
-               return;
-           }
            try {
                const dirHandle = await _loadDirHandle();
-               if (dirHandle) {
-                   // queryPermission solo consulta; nunca muestra ningún diálogo.
-                   const perm = await dirHandle.queryPermission({ mode: 'readwrite' });
-                   if (perm === 'granted') _saveDirHandle = dirHandle;
+               // Conservamos el handle para mostrar su nombre y usarlo como punto de
+               // partida del diálogo de guardado, aunque el permiso deba reconcederse.
+               if (dirHandle && !_saveDirHandle) {
+                   _saveDirHandle = dirHandle;
+                   _saveDirName = dirHandle.name || _saveDirName;
+                   if (_saveDirName) localStorage.setItem(_SAVE_DIR_NAME_KEY, _saveDirName);
                }
            } catch (e) {
                console.error('No se pudo cargar la configuración de carpeta', e);
@@ -886,17 +888,16 @@
            _updateAdminUI();
        }
 
-       // Comprueba que realmente se puede escribir en la carpeta (en file:// el permiso
-       // puede figurar como concedido pero las escrituras fallan). Escribe y borra un
-       // pequeño fichero de prueba.
-       async function _verifyDirWritable(handle) {
+       // Asegura permiso de escritura sobre la carpeta configurada DENTRO de un gesto del
+       // usuario. Devuelve true si la carpeta queda lista para abrirse en el diálogo.
+       async function _ensureDirPermission() {
+           if (!_saveDirHandle) return false;
            try {
-               const fh = await handle.getFileHandle('.icgvision_write_test', { create: true });
-               const w = await fh.createWritable();
-               await w.write('ok');
-               await w.close();
-               try { await handle.removeEntry('.icgvision_write_test'); } catch { /* no crítico */ }
-               return true;
+               let perm = await _saveDirHandle.queryPermission({ mode: 'readwrite' });
+               if (perm !== 'granted') {
+                   perm = await _saveDirHandle.requestPermission({ mode: 'readwrite' });
+               }
+               return perm === 'granted';
            } catch {
                return false;
            }
@@ -1465,6 +1466,20 @@ function _downloadJson(data) {
     URL.revokeObjectURL(url);
 }
 
+function _isLocalFilePage() {
+    return window.location && window.location.protocol === 'file:';
+}
+
+function _isFileSystemWriteBlocked(error) {
+    return error && (error.name === 'NotAllowedError' || error.name === 'SecurityError');
+}
+
+function _finishWithDownloadFallback(data) {
+    _downloadJson(data);
+    _markSaved();
+    showNotification('Archivo descargado en la carpeta de descargas del navegador ✓', 'success');
+}
+
 async function saveDataToFile() {
    try {
        if (!reportMetadata || !reportMetadata.equipo) {
@@ -1476,29 +1491,58 @@ async function saveDataToFile() {
        _writeLocalBackup();
 
        const data = _buildSaveData();
+       const json = JSON.stringify(data, null, 2);
+       const fileName = `ICG_${reportMetadata.equipo.replace(/[^a-zA-Z0-9]/g, '_')}.json`;
 
-       // ── Carpeta con permiso activo (solo http/https) ────────────────────────────────
-       // En file:// el navegador bloquea createWritable, así que la carpeta no se usa.
-       if (_saveDirHandle && !_folderWritesBlocked()) {
-           try {
-               await _writeJsonToDir(_saveDirHandle, data);
-               _markSaved();
-               showNotification(`Guardado en "${_saveDirHandle.name}" ✓`, 'success');
-               return;
-           } catch (e) {
-               if (e.name !== 'NotAllowedError' && e.name !== 'SecurityError') throw e;
-               // Permiso/escritura no disponible → caemos a la descarga.
-               _saveDirHandle = null;
-               _updateAdminUI();
+       // ── Diálogo de guardado abierto en la carpeta configurada por el Administrador ───
+       if (window.showSaveFilePicker) {
+           const opts = {
+               suggestedName: fileName,
+               types: [{ description: 'Archivo JSON', accept: { 'application/json': ['.json'] } }]
+           };
+           // El explorador se abre en la carpeta configurada (startIn solo necesita el
+           // handle, no permiso). En file:// la escritura está bloqueada y se resuelve con
+           // el respaldo de descarga; en http/localhost exigimos permiso para createWritable.
+           if (_saveDirHandle) {
+               if (_isLocalFilePage() || await _ensureDirPermission()) {
+                   opts.startIn = _saveDirHandle;
+               }
            }
+
+           let fileHandle;
+           try {
+               fileHandle = await window.showSaveFilePicker(opts);
+           } catch (e) {
+               // El usuario pulsó "Cancelar": NO se ha guardado nada. Botón sigue activo.
+               if (e.name === 'AbortError') {
+                   showNotification('Guardado CANCELADO. Los cambios siguen pendientes ⚠️', 'warning');
+                   return;
+               }
+               throw e;
+           }
+
+           // El usuario confirmó: escribimos realmente el archivo.
+           try {
+               const writable = await fileHandle.createWritable();
+               await writable.write(json);
+               await writable.close();
+           } catch (e) {
+               console.error('Error al escribir el archivo:', e);
+               if (_isFileSystemWriteBlocked(e)) {
+                   _finishWithDownloadFallback(data);
+                   return;
+               }
+               showNotification('No se pudo escribir el archivo. Los cambios siguen pendientes ⚠️', 'error');
+               return;
+           }
+
+           _markSaved();
+           showNotification('Datos guardados correctamente ✓', 'success');
+           return;
        }
 
-       // ── Descarga del navegador ──────────────────────────────────────────────────────
-       // Vía fiable en file:// (y fallback general). El archivo se guarda en la carpeta
-       // de Descargas configurada en el navegador.
-       _downloadJson(data);
-       _markSaved();
-       showNotification('Cambios guardados en la carpeta de descargas del navegador ✓', 'success');
+       // ── Fallback (navegadores sin File System Access API) ───────────────────────────
+       _finishWithDownloadFallback(data);
 
    } catch (e) {
        console.error('Error guardando archivo:', e);

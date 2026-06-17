@@ -479,14 +479,14 @@
                    <span class="text-[10px] font-bold uppercase tracking-wide">Acceso concedido</span>
                </div>
                <p class="text-[9px] font-black uppercase tracking-widest text-sap-secondaryText pt-1">Carpeta de cambios</p>
-               <p id="adminFolderHint" class="text-[10px] text-sap-secondaryText leading-snug">Selecciona la carpeta donde se guardarán los archivos JSON. Una vez configurada, los cambios se guardarán automáticamente en ella.</p>
+               <p id="adminFolderHint" class="text-[10px] text-sap-secondaryText leading-snug">Elige la carpeta donde se guardarán los archivos. Quedará memorizada para futuros guardados.</p>
                <div class="flex items-center gap-2 px-3 py-2 rounded-fiori border border-sap-border bg-sap-bg dark:bg-sap-darkBg min-h-[2.25rem]">
                    <i data-lucide="folder" class="w-3.5 h-3.5 text-sap-blue shrink-0"></i>
                    <span id="adminSaveFolderLabel" class="text-[10px] font-mono text-sap-secondaryText truncate flex-1">Sin configurar</span>
                </div>
                <div class="flex gap-2">
                    <button onclick="adminSelectSaveFolder()" id="btnSelectFolder" class="flex-1 flex items-center justify-center gap-2 px-3 py-2.5 bg-sap-blue text-white rounded-fiori hover:bg-sap-darkBlue transition-colors text-xs font-bold">
-                       <i data-lucide="folder-open" class="w-3.5 h-3.5"></i><span id="btnSelectFolderLabel">Establecer carpeta</span>
+                       <i data-lucide="folder-open" class="w-3.5 h-3.5"></i><span id="btnSelectFolderLabel">Configurar carpeta de guardado</span>
                    </button>
                    <button onclick="adminClearSaveFolder()" id="btnClearSaveFolder" class="hidden px-3 py-2.5 border border-red-200 text-red-500 rounded-fiori hover:bg-red-50 transition-colors text-xs font-bold" title="Eliminar carpeta configurada">
                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
@@ -597,6 +597,6 @@
 
    <!-- Inicialización de Scripts en orden de precedencia lógica -->
     <script src="js/master-data.js"></script>
-    <script src="js/app.js?v=folder-save-9" defer></script>
+    <script src="js/app.js?v=folder-save-10" defer></script>
 </body>
 </html>

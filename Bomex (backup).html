@@ -665,10 +665,6 @@
                             <input type="checkbox" id="isolate-view-checkbox" disabled>
                             <label for="isolate-view-checkbox">AISLAR SELECCIÓN</label>
                         </div>
-                        <div id="unassigned-op-wrapper" class="checkbox-group" title="Muestra solo componentes sin operación asignada">
-                            <input type="checkbox" id="unassigned-op-checkbox" disabled>
-                            <label for="unassigned-op-checkbox">SIN ASIGNAR</label>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -946,8 +942,6 @@
     const flatViewWrapper = document.getElementById('flat-view-wrapper');
     const isolateViewCheckbox = document.getElementById('isolate-view-checkbox');
     const isolateViewWrapper = document.getElementById('isolate-view-wrapper');
-    const unassignedOpCheckbox = document.getElementById('unassigned-op-checkbox');
-    const unassignedOpWrapper = document.getElementById('unassigned-op-wrapper');
     const colPopover = document.getElementById('column-popover');
     const breadcrumbLinks = document.getElementById('breadcrumb-links');
     const STORAGE_KEY = 'sap_bom_viewer_preferences';
@@ -961,10 +955,6 @@
         SoundManager.playClick(); 
         updateExportButtonsState(); 
         renderTree(); 
-    };
-    unassignedOpCheckbox.onchange = () => { 
-        SoundManager.playClick(); 
-        applyGlobalFilters(); 
     };
 
     dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
@@ -1365,7 +1355,6 @@
         renderTree();
         document.getElementById('stats-summary').classList.remove('hidden');
         updateIsolateAccessibility();
-        updateUnassignedOpAccessibility();
         updateExportButtonsState();
     }
 
@@ -1389,9 +1378,7 @@
                     const isBaseError = (n.apro === 'E' || n.artGrp === '657T') && n.children.length === 0;
                     const isExcl659J = n.artGrp === '659J' && n.granel === 'X';
                     const isExcl667E = n.artGrp === '667E' && n.unit === 'KG' && parseSAPQuantity(n.qty) >= 1;
-                    const isExclE1 = n.artGrp === '657T' && n.spec === 'E1';
-                    const isExcl657F = n.artGrp === '657F';
-                    const isStructureError = isBaseError && !isExcl659J && !isExcl667E && !isExclE1 && !isExcl657F;
+                    const isStructureError = isBaseError && !isExcl659J && !isExcl667E;
                     const isMaterialAlert = (n.unit === 'BOT' || n.unit === 'KG') && parseSAPQuantity(n.qty) >= 1 && n.artGrp !== '693A' && !isExcl659J && !isExcl667E;
                     const status693A = check693AStatus(n);
                     const is693AErrorLocal = status693A.active && !status693A.globalOnly;
@@ -1438,16 +1425,6 @@
         else {
             isolateViewWrapper.classList.remove('active');
             isolateViewCheckbox.checked = false;
-        }
-    }
-
-    function updateUnassignedOpAccessibility() {
-        const hasData = allNodesFlattened.length > 0;
-        unassignedOpCheckbox.disabled = !hasData;
-        if (hasData) unassignedOpWrapper.classList.add('active');
-        else {
-            unassignedOpWrapper.classList.remove('active');
-            unassignedOpCheckbox.checked = false;
         }
     }
 
@@ -1652,7 +1629,6 @@
         const oRaw = document.getElementById('operacion-input').value.trim().toLowerCase();
         const gRaw = document.getElementById('group-input').value.trim().toUpperCase();
         const exRaw = document.getElementById('exclude-input').value.trim().toLowerCase();
-        const isUnassignedOpMode = unassignedOpCheckbox.checked && !unassignedOpCheckbox.disabled;
         
         const isErrorF = lastCheckedMode === 'ERRORES';
 
@@ -1667,7 +1643,7 @@
         lastGroupedMatches = new Map();
 
         // Restauración rápida si todo está vacío
-        if (!fVals.length && !sVals.length && !oVals.length && !gVals.length && !exVals.length && !isErrorF && !isUnassignedOpMode) { 
+        if (!fVals.length && !sVals.length && !oVals.length && !gVals.length && !exVals.length && !isErrorF) { 
             allNodesFlattened.forEach(n => { n.isVisible = true; n.matchesFilter = false; n.expanded = false; });
             isFilterActive = false; 
             updateExportButtonsState(); 
@@ -1715,8 +1691,7 @@
                                 )) && 
                                 (oVals.length === 0 || oVals.some(v => nOp.includes(v) || nOpD.includes(v))) && 
                                 (gVals.length === 0 || gVals.some(v => n.artGrp.includes(v))) && 
-                                (sVals.length === 0 || sVals.some(v => n.parentBOM.includes(v))) &&
-                                (!isUnassignedOpMode || n.op === '');
+                                (sVals.length === 0 || sVals.some(v => n.parentBOM.includes(v)));
                 
                 // 6. Lógica de ERRORES
                 let isErrMatch = true;
@@ -1774,7 +1749,6 @@
         if (breadcrumbLinks) breadcrumbLinks.innerHTML = '';
         flatViewCheckbox.checked = false; 
         isolateViewCheckbox.checked = false;
-        unassignedOpCheckbox.checked = false;
         isFilterActive = false; lastCheckedMode = null;
         lastGroupedMatches = new Map();
         document.getElementById('filter-summary').classList.add('hidden'); updateFlatAccessibility();
@@ -1860,10 +1834,9 @@
                     const isExcl659J = n.artGrp === '659J' && n.granel === 'X';
                     const isExcl667E = n.artGrp === '667E' && n.unit === 'KG' && parseSAPQuantity(n.qty) >= 1;
                     // CORRECCIÓN: Se valida n.spec (Aprov. Especial) para detectar el E1
-                    const isExclE1 = n.artGrp === '657T' && n.spec === 'E1';
-                    const isExcl657F = n.artGrp === '657F';
+                    const isExclE1 = n.artGrp === '657T' && n.spec === 'E1'; 
                     const isBaseError = (n.apro === 'E' || n.artGrp === '657T') && n.children.length === 0;
-                    const isStructureError = isBaseError && !isExcl659J && !isExcl667E && !isExclE1 && !isExcl657F;
+                    const isStructureError = isBaseError && !isExcl659J && !isExcl667E && !isExclE1;
                     const isLogAlert = ((n.unit === 'BOT' || n.unit === 'KG') && parseSAPQuantity(n.qty) >= 1 && n.artGrp !== '693A' && !isExcl659J && !isExcl667E);
                     const status693A = check693AStatus(n);
                     const is693AErrorLocal = status693A.active && !status693A.globalOnly;

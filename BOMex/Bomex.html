@@ -1378,7 +1378,9 @@
                     const isBaseError = (n.apro === 'E' || n.artGrp === '657T') && n.children.length === 0;
                     const isExcl659J = n.artGrp === '659J' && n.granel === 'X';
                     const isExcl667E = n.artGrp === '667E' && n.unit === 'KG' && parseSAPQuantity(n.qty) >= 1;
-                    const isStructureError = isBaseError && !isExcl659J && !isExcl667E;
+                    const isExclE1 = n.artGrp === '657T' && n.spec === 'E1';
+                    const isExcl657F = n.artGrp === '657F';
+                    const isStructureError = isBaseError && !isExcl659J && !isExcl667E && !isExclE1 && !isExcl657F;
                     const isMaterialAlert = (n.unit === 'BOT' || n.unit === 'KG') && parseSAPQuantity(n.qty) >= 1 && n.artGrp !== '693A' && !isExcl659J && !isExcl667E;
                     const status693A = check693AStatus(n);
                     const is693AErrorLocal = status693A.active && !status693A.globalOnly;
@@ -1834,9 +1836,10 @@
                     const isExcl659J = n.artGrp === '659J' && n.granel === 'X';
                     const isExcl667E = n.artGrp === '667E' && n.unit === 'KG' && parseSAPQuantity(n.qty) >= 1;
                     // CORRECCIÓN: Se valida n.spec (Aprov. Especial) para detectar el E1
-                    const isExclE1 = n.artGrp === '657T' && n.spec === 'E1'; 
+                    const isExclE1 = n.artGrp === '657T' && n.spec === 'E1';
+                    const isExcl657F = n.artGrp === '657F';
                     const isBaseError = (n.apro === 'E' || n.artGrp === '657T') && n.children.length === 0;
-                    const isStructureError = isBaseError && !isExcl659J && !isExcl667E && !isExclE1;
+                    const isStructureError = isBaseError && !isExcl659J && !isExcl667E && !isExclE1 && !isExcl657F;
                     const isLogAlert = ((n.unit === 'BOT' || n.unit === 'KG') && parseSAPQuantity(n.qty) >= 1 && n.artGrp !== '693A' && !isExcl659J && !isExcl667E);
                     const status693A = check693AStatus(n);
                     const is693AErrorLocal = status693A.active && !status693A.globalOnly;
